@@ -1,0 +1,46 @@
+# node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# iOS
+ios/Pods/
+ios/build/
+ios/DerivedData/
+ios/.xcode.env.local
+**/.xcode.env.local
+*.xcuserstate
+xcuserdata/
+*.hmap
+*.ipa
+
+# Android
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.keystore
+!debug.keystore
+*.iml
+.cxx/
+
+# RN / Metro
+.metro-health-check*
+.expo/
+coverage/
+*.jsbundle
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+.idea/
+
+# JVM crash dumps
+hs_err_pid*
+replay_pid*
+*.hprof
