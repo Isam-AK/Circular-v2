@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useUserStore } from '@/stores/useUserStore';
 import { savingsTierLabel } from '@/lib/emissions';
+import { Globe } from '@/components/Globe';
 import type { AppStackParamList } from './navigation';
 
 // ── Constants ──────────────────────────────────────────────
@@ -185,14 +186,9 @@ export const HomeScreen: React.FC = () => {
         />
       </View>
 
-      {/* ── 3D Element Placeholder ── */}
-      <View style={styles.webglPlaceholder}>
-        <Text style={styles.placeholderText}>
-          [ 3D WebGL Earth — @react-three/fiber ]
-        </Text>
-        <Text style={styles.placeholderSubtext}>
-          Renders a rotating globe whose vegetation density reflects your score
-        </Text>
+      {/* ── 3D Globe — color reflects lifetime savings ── */}
+      <View style={styles.globeContainer}>
+        <Globe savedKg={saved} />
       </View>
 
       {/* ── Quick Actions ── */}
@@ -350,29 +346,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // 3D placeholder
-  webglPlaceholder: {
-    height: 140,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    borderRadius: 16,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: 'rgba(0,0,0,0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  // 3D globe
+  globeContainer: {
+    height: 220,
     marginBottom: 24,
-  },
-  placeholderText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#a3a3a3',
-  },
-  placeholderSubtext: {
-    fontSize: 11,
-    color: '#d4d4d4',
-    marginTop: 6,
-    textAlign: 'center',
-    paddingHorizontal: 20,
+    // Transparent background so the globe blends with the score-driven
+    // background color animating behind it.
+    backgroundColor: 'transparent',
   },
 
   // Quick actions
