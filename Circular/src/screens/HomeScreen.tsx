@@ -26,9 +26,11 @@ const { width: SCREEN_W } = Dimensions.get('window');
 
 /**
  * Savings thresholds (kg CO₂e saved vs. petrol-car baseline).
- *   0       → neutral / "just starting"
+ *   0       → neutral gray / "just starting"
  *   200+    → fully saturated green / "climate champion"
- * Interpolated gradient between.
+ * Curve is logarithmic so the first kg saved produces a visible color
+ * shift, then progress slows. Linear made early trips look identical to
+ * having zero savings.
  */
 const SAVED_HIGH = 200;
 
@@ -42,12 +44,19 @@ const BG_GRAY = '#fafafa';     // carbon-50
 
 // ── Helpers ────────────────────────────────────────────────
 
-/** Normalize savings to 0–1 for animation interpolation. 0 = no savings yet, 1 = SAVED_HIGH+. */
+/**
+ * Normalize savings to 0–1 for animation interpolation, on a log curve.
+ *   0 kg     → 0
+ *   1 kg     → ~0.13   (visible amber tint)
+ *   10 kg    → ~0.45   (clearly mid)
+ *   50 kg    → ~0.74
+ *   200+ kg  → 1       (fully green)
+ */
 function normalizeSavings(saved: number): number {
   'worklet';
   if (saved <= 0) return 0;
   if (saved >= SAVED_HIGH) return 1;
-  return saved / SAVED_HIGH;
+  return Math.log10(saved + 1) / Math.log10(SAVED_HIGH + 1);
 }
 
 // ── Component ──────────────────────────────────────────────

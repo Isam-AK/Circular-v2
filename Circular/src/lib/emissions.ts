@@ -56,12 +56,17 @@ export function isGreenMode(mode: TransportMode): boolean {
   return EMISSION_FACTORS_KG_PER_KM[mode] === 0;
 }
 
-/** Human-readable tier label for total lifetime savings (kg CO₂e). */
+/**
+ * Human-readable tier label for total lifetime savings (kg CO₂e).
+ * The "Getting started" threshold is intentionally well below 1 kg so that
+ * the user gets feedback immediately after their first green trip — even a
+ * short bike commute should flip them out of the "Log your first" state.
+ */
 export function savingsTierLabel(savedKg: number): string {
   if (savedKg >= 200) return 'Climate champion';
   if (savedKg >= 50) return 'Great progress';
   if (savedKg >= 10) return 'Building momentum';
-  if (savedKg >= 1) return 'Getting started';
+  if (savedKg > 0) return 'Getting started';
   return 'Log your first green trip';
 }
 
