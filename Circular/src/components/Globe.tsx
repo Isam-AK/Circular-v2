@@ -3,10 +3,15 @@ import { View, type LayoutChangeEvent } from 'react-native';
 import {
   Canvas,
   Circle,
+  Fill,
+  Shader,
+  Skia,
   RadialGradient,
   BlurMask,
   vec,
+  useClock,
 } from '@shopify/react-native-skia';
+import { useDerivedValue } from 'react-native-reanimated';
 
 const SAVED_HIGH = 200;
 
@@ -17,26 +22,138 @@ function progressFor(savedKg: number): number {
   return Math.log10(savedKg + 1) / Math.log10(SAVED_HIGH + 1);
 }
 
-function lerpInt(a: number, b: number, t: number): number {
-  return Math.round(a + (b - a) * t);
+// ─── SkSL runtime shader ──────────────────────────────────────────────────
+//
+// Renders a 3D sphere by projecting fragment coordinates onto a unit sphere,
+// computing the surface normal, and shading via Phong-style lighting + an
+// FBM noise pattern for continent/vegetation density. Continents fade in as
+// `progress` grows, so a 0-saved user sees a dull featureless ocean and a
+// 200+ kg saver sees lush green land.
+
+const SPHERE_SHADER_SOURCE = `
+uniform float  time;        // seconds since start
+uniform float  progress;    // 0..1 lifetime savings normalized
+uniform float  radius;
+uniform float2 center;
+
+// ── 2D hash + value noise + 4-octave FBM ──────────────────────────────
+float hash(float2 p) {
+  return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
 }
 
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
+float noise(float2 p) {
+  float2 i = floor(p);
+  float2 f = fract(p);
+  float2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i),                  hash(i + float2(1.0, 0.0)), u.x),
+             mix(hash(i + float2(0.0, 1.0)), hash(i + float2(1.0, 1.0)), u.x),
+             u.y);
 }
+
+float fbm(float2 p) {
+  float v = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 5; i++) {
+    v += a * noise(p);
+    p *= 2.0;
+    a *= 0.5;
+  }
+  return v;
+}
+
+half4 main(float2 fragCoord) {
+  float2 d = fragCoord - center;
+  float  dist = length(d);
+
+  // Outside sphere → transparent (Skia handles the Circle clip too, but this
+  // lets us anti-alias the rim ourselves for a softer edge).
+  if (dist > radius + 1.5) {
+    return half4(0.0);
+  }
+
+  // ── Project to unit-sphere normal ──
+  float2 nxy = d / radius;
+  float  d2 = dot(nxy, nxy);
+  float  nz = sqrt(max(0.0, 1.0 - d2));
+  float3 n = float3(nxy.x, nxy.y, nz);
+
+  // ── Spherical UV with slow rotation around the Y axis ──
+  // u wraps 0..1 longitude, v 0..1 latitude.
+  float u = atan(n.x, n.z) / 6.28318530718 + 0.5 + time * 0.035;
+  float v = acos(clamp(-n.y, -1.0, 1.0)) / 3.14159265359;
+
+  // ── Continent / vegetation noise ──
+  // Sample FBM at moderate frequency for continent-scale blobs.
+  float landDensity = fbm(float2(u * 5.5, v * 5.5));
+  // A second higher-frequency layer adds vegetation detail on top of land.
+  float vegDetail   = fbm(float2(u * 14.0 + 5.0, v * 14.0 + 5.0));
+
+  // ── Lighting ──
+  float3 lightDir = normalize(float3(-0.45, -0.55, 0.8));
+  float  diffuse  = max(0.0, dot(n, lightDir));
+  float  ambient  = 0.32;
+  float  lighting = ambient + (1.0 - ambient) * diffuse;
+
+  // Subtle specular for sheen on top-left
+  float3 viewDir = float3(0.0, 0.0, 1.0);
+  float3 halfwayDir = normalize(lightDir + viewDir);
+  float  spec = pow(max(0.0, dot(n, halfwayDir)), 32.0) * 0.35;
+
+  // ── Surface colors, all driven by progress ──
+  // Ocean transitions from cool gray (progress=0) to deep eco-800 (progress=1).
+  half3 oceanLow  = half3(0.25, 0.25, 0.25);
+  half3 oceanHigh = half3(0.024, 0.373, 0.275);
+  half3 ocean = mix(oceanLow, oceanHigh, progress);
+
+  // Land transitions from olive-gray (progress=0) to vibrant eco-500.
+  half3 landLow  = half3(0.40, 0.40, 0.34);
+  half3 landHigh = half3(0.063, 0.725, 0.506);
+  half3 land = mix(landLow, landHigh, progress);
+
+  // Vegetation patches inside land — darker, denser green at high progress.
+  half3 vegHigh  = half3(0.024, 0.541, 0.353); // eco-700
+  half3 landFinal = mix(land, vegHigh, smoothstep(0.45, 0.75, vegDetail) * progress);
+
+  // Smooth transition between ocean and land based on noise threshold,
+  // narrower band at higher progress (sharper coastlines).
+  float coastWidth = mix(0.18, 0.08, progress);
+  float landMask = smoothstep(0.5 - coastWidth, 0.5 + coastWidth, landDensity);
+
+  half3 surface = mix(ocean, landFinal, landMask);
+
+  // Apply lighting + specular
+  half3 lit = surface * half(lighting) + half3(spec);
+
+  // ── Soft edge ──
+  // Linear alpha fade in the last 1.5 px around the rim for anti-aliasing.
+  float edgeAlpha = 1.0 - smoothstep(radius - 1.0, radius + 1.0, dist);
+  return half4(lit, half(edgeAlpha));
+}
+`;
+
+const SPHERE_EFFECT = Skia.RuntimeEffect.Make(SPHERE_SHADER_SOURCE);
+if (!SPHERE_EFFECT) {
+  // Surface the SkSL compile error early instead of silently failing.
+  // (Skia logs the actual diagnostic to the native console.)
+  console.warn('[Globe] SkSL shader failed to compile — check Globe.tsx');
+}
+
+// ─── Component ────────────────────────────────────────────────────────────
 
 interface GlobeProps {
   savedKg: number;
 }
 
 /**
- * Stylized "carbon globe" rendered with Skia. Not a true 3D sphere — uses a
- * radial gradient to fake depth/lighting, plus a blurred atmosphere ring.
- * Color interpolates from carbon-600 (gray, "just starting") to eco-500
- * (vibrant green, "climate champion") on the same log curve as HomeScreen.
+ * Stylized "carbon globe" rendered with a Skia SkSL runtime shader. Sphere
+ * shading is real (sphere-projected normal + diffuse/specular lighting), but
+ * the surface is procedural noise rather than a literal Earth texture. As
+ * `savedKg` grows the ocean deepens, continents emerge with sharper coasts,
+ * and vegetation patches intensify — visually echoing the home score ring
+ * which also greens up with the same log curve.
  *
- * Lives in HomeScreen's mid-section. Self-contained — takes the current
- * savings number as a prop, nothing else.
+ * Time animation uses Skia's own clock (NOT a Reanimated DerivedValue passed
+ * directly into a Skia prop — that crashes the CTM recorder, see git history).
  */
 export const Globe: React.FC<GlobeProps> = ({ savedKg }) => {
   const [size, setSize] = useState<{ width: number; height: number }>({
@@ -48,72 +165,65 @@ export const Globe: React.FC<GlobeProps> = ({ savedKg }) => {
     setSize(e.nativeEvent.layout);
   };
 
-  // Map savings → 0–1 progress, interpolate base color.
-  // carbon-600 #525252 → eco-500 #10b981
-  const palette = useMemo(() => {
-    const t = progressFor(savedKg);
-    const r = lerpInt(82, 16, t);
-    const g = lerpInt(82, 185, t);
-    const b = lerpInt(82, 129, t);
-    const base = `rgb(${r}, ${g}, ${b})`;
-    const light = `rgb(${clamp(r + 90, 0, 255)}, ${clamp(g + 90, 0, 255)}, ${clamp(b + 90, 0, 255)})`;
-    const shadow = `rgb(${clamp(r - 50, 0, 255)}, ${clamp(g - 50, 0, 255)}, ${clamp(b - 50, 0, 255)})`;
-    return { base, light, shadow, progress: t };
-  }, [savedKg]);
+  const clock = useClock(); // Skia-native clock; SharedValue<number> in ms
 
-  if (size.width === 0 || size.height === 0) {
+  // Cache layout-derived geometry so it doesn't recompute every frame.
+  const geom = useMemo(() => {
+    if (size.width === 0 || size.height === 0) return null;
+    const cx = size.width / 2;
+    const cy = size.height / 2;
+    const r = Math.min(size.width, size.height) * 0.38;
+    return { cx, cy, r };
+  }, [size.width, size.height]);
+
+  const progress = progressFor(savedKg);
+
+  // Shader uniforms as a Reanimated derived value — Skia subscribes per frame.
+  const uniforms = useDerivedValue(() => {
+    if (!geom) return { time: 0, progress, radius: 1, center: [0, 0] };
+    return {
+      time: clock.value / 1000,
+      progress,
+      radius: geom.r,
+      center: [geom.cx, geom.cy] as [number, number],
+    };
+  }, [clock, progress, geom?.cx, geom?.cy, geom?.r]);
+
+  // Atmosphere color follows progress on the same gray→eco-500 axis.
+  const atmosphere = useMemo(() => {
+    const r = Math.round(82 + (16 - 82) * progress);
+    const g = Math.round(82 + (185 - 82) * progress);
+    const b = Math.round(82 + (129 - 82) * progress);
+    const color = `rgb(${r}, ${g}, ${b})`;
+    return {
+      color,
+      opacity: 0.18 + progress * 0.5,
+    };
+  }, [progress]);
+
+  if (!geom || !SPHERE_EFFECT) {
     return <View style={{ flex: 1 }} onLayout={onLayout} />;
   }
 
-  const cx = size.width / 2;
-  const cy = size.height / 2;
-  const baseRadius = Math.min(size.width, size.height) * 0.38;
-
-  // Light source comes from top-left for the "3D sphere" illusion.
-  const lightOffsetX = -baseRadius * 0.35;
-  const lightOffsetY = -baseRadius * 0.35;
-
-  // Atmosphere intensity scales with progress — barely visible at 0,
-  // glowing at high savings.
-  const atmosphereOpacity = 0.18 + palette.progress * 0.55;
+  const { cx, cy, r } = geom;
 
   return (
     <View style={{ flex: 1 }} onLayout={onLayout}>
       <Canvas style={{ flex: 1 }}>
-        {/* Outer atmosphere glow — large soft blurred ring */}
-        <Circle cx={cx} cy={cy} r={baseRadius * 1.35} opacity={atmosphereOpacity}>
+        {/* Outer atmosphere glow — blurred ring outside the sphere */}
+        <Circle cx={cx} cy={cy} r={r * 1.32} opacity={atmosphere.opacity}>
           <BlurMask blur={28} style="normal" />
           <RadialGradient
             c={vec(cx, cy)}
-            r={baseRadius * 1.4}
-            colors={[palette.base, `${palette.base}00`]}
+            r={r * 1.35}
+            colors={[atmosphere.color, `${atmosphere.color}00`]}
           />
         </Circle>
 
-        {/* Main globe body — radial gradient fakes lighting from top-left */}
-        <Circle cx={cx} cy={cy} r={baseRadius}>
-          <RadialGradient
-            c={vec(cx + lightOffsetX, cy + lightOffsetY)}
-            r={baseRadius * 1.8}
-            colors={[palette.light, palette.base, palette.shadow]}
-            positions={[0, 0.55, 1]}
-          />
-        </Circle>
-
-        {/* Specular highlight — small bright spot near the light source */}
-        <Circle
-          cx={cx + lightOffsetX * 0.7}
-          cy={cy + lightOffsetY * 0.7}
-          r={baseRadius * 0.18}
-          opacity={0.4 + palette.progress * 0.2}
-        >
-          <BlurMask blur={12} style="normal" />
-          <RadialGradient
-            c={vec(cx + lightOffsetX * 0.7, cy + lightOffsetY * 0.7)}
-            r={baseRadius * 0.2}
-            colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0)']}
-          />
-        </Circle>
+        {/* The sphere itself — SkSL shader handles lighting + continents */}
+        <Fill>
+          <Shader source={SPHERE_EFFECT} uniforms={uniforms} />
+        </Fill>
       </Canvas>
     </View>
   );
