@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useAuthStore } from '@/stores/useAuthStore';
-import type { AuthStackParamList } from './authNav';
+import type { AuthStackParamList } from './navigation';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'SignUp'>;
 

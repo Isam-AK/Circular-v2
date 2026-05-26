@@ -11,21 +11,19 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { SignInScreen } from './src/screens/SignInScreen';
 import { SignUpScreen } from './src/screens/SignUpScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
-import type { AuthStackParamList } from './src/screens/authNav';
+import { TripsScreen } from './src/screens/TripsScreen';
+import { LogTripScreen } from './src/screens/LogTripScreen';
+import type {
+  AppStackParamList,
+  AuthStackParamList,
+  RootTabParamList,
+} from './src/screens/navigation';
 import { useAuthStore } from './src/stores/useAuthStore';
 import { useUserStore } from './src/stores/useUserStore';
 
-// ── Tab Navigator ──────────────────────────────────────────
-
-export type RootTabParamList = {
-  Home: undefined;
-  Trips: undefined;
-  Share: undefined;
-  Profile: undefined;
-};
-
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+const AppStack = createNativeStackNavigator<AppStackParamList>();
 
 // Placeholder screens for tabs not yet built
 const PlaceholderScreen: React.FC<{ name: string }> = ({ name }) => {
@@ -61,10 +59,9 @@ const TabsNavigator: React.FC = () => (
     />
     <Tab.Screen
       name="Trips"
+      component={TripsScreen}
       options={{ tabBarLabel: 'Trips', tabBarIcon: () => null }}
-    >
-      {() => <PlaceholderScreen name="Trips" />}
-    </Tab.Screen>
+    />
     <Tab.Screen
       name="Share"
       options={{ tabBarLabel: 'Share', tabBarIcon: () => null }}
@@ -77,6 +74,20 @@ const TabsNavigator: React.FC = () => (
       options={{ tabBarLabel: 'Profile', tabBarIcon: () => null }}
     />
   </Tab.Navigator>
+);
+
+const AppNavigator: React.FC = () => (
+  <AppStack.Navigator screenOptions={{ headerShown: false }}>
+    <AppStack.Screen name="Tabs" component={TabsNavigator} />
+    <AppStack.Screen
+      name="LogTrip"
+      options={{ presentation: 'modal', gestureEnabled: true }}
+    >
+      {({ navigation }) => (
+        <LogTripScreen onClose={() => navigation.goBack()} />
+      )}
+    </AppStack.Screen>
+  </AppStack.Navigator>
 );
 
 const AuthNavigator: React.FC = () => (
@@ -118,7 +129,7 @@ export default function App(): React.JSX.Element {
       <SafeAreaProvider>
         <StatusBar barStyle="dark-content" backgroundColor="#ecfdf5" />
         <NavigationContainer>
-          {!initialized ? <Splash /> : session ? <TabsNavigator /> : <AuthNavigator />}
+          {!initialized ? <Splash /> : session ? <AppNavigator /> : <AuthNavigator />}
         </NavigationContainer>
       </SafeAreaProvider>
     </GestureHandlerRootView>

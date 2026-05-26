@@ -9,6 +9,8 @@ export type TransportMode =
   | 'bus'
   | 'train'
   | 'car'
+  | 'ev_car'
+  | 'hybrid_car'
   | 'rideshare'
   | 'flight';
 

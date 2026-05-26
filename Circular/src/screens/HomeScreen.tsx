@@ -14,20 +14,23 @@ import Animated, {
   interpolateColor,
   Easing,
 } from 'react-native-reanimated';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useUserStore } from '@/stores/useUserStore';
+import { savingsTierLabel } from '@/lib/emissions';
+import type { AppStackParamList } from './navigation';
 
 // ── Constants ──────────────────────────────────────────────
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
 /**
- * Carbon score thresholds (kg CO₂e).
- * Below LOW  → vibrant green (excellent).
- * Above HIGH → dull gray (needs improvement).
- * Between    → interpolated gradient.
+ * Savings thresholds (kg CO₂e saved vs. petrol-car baseline).
+ *   0       → neutral / "just starting"
+ *   200+    → fully saturated green / "climate champion"
+ * Interpolated gradient between.
  */
-const SCORE_LOW = 50;
-const SCORE_HIGH = 500;
+const SAVED_HIGH = 200;
 
 const COLOR_GREEN = '#059669'; // eco-600
 const COLOR_MID = '#facc15';   // amber-400
@@ -39,25 +42,19 @@ const BG_GRAY = '#fafafa';     // carbon-50
 
 // ── Helpers ────────────────────────────────────────────────
 
-/** Normalize a carbon score to 0–1 for animation interpolation. */
-function normalizeScore(score: number): number {
+/** Normalize savings to 0–1 for animation interpolation. 0 = no savings yet, 1 = SAVED_HIGH+. */
+function normalizeSavings(saved: number): number {
   'worklet';
-  if (score <= SCORE_LOW) return 0;
-  if (score >= SCORE_HIGH) return 1;
-  return (score - SCORE_LOW) / (SCORE_HIGH - SCORE_LOW);
-}
-
-function getScoreLabel(score: number): string {
-  if (score <= SCORE_LOW) return 'Excellent';
-  if (score <= 200) return 'Good';
-  if (score <= 350) return 'Moderate';
-  return 'Needs Work';
+  if (saved <= 0) return 0;
+  if (saved >= SAVED_HIGH) return 1;
+  return saved / SAVED_HIGH;
 }
 
 // ── Component ──────────────────────────────────────────────
 
 export const HomeScreen: React.FC = () => {
   const { user, loading, error, fetchUser } = useUserStore();
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
 
   // Shared value that drives all color animations
   const progress = useSharedValue(0);
@@ -66,23 +63,25 @@ export const HomeScreen: React.FC = () => {
     fetchUser();
   }, [fetchUser]);
 
-  // Animate progress whenever carbon_score changes
+  // Animate progress whenever carbon_saved changes. Higher savings = fuller animation.
   useEffect(() => {
     if (user) {
-      progress.value = withTiming(normalizeScore(user.carbon_score), {
+      progress.value = withTiming(normalizeSavings(user.carbon_saved), {
         duration: 1200,
         easing: Easing.out(Easing.cubic),
       });
     }
-  }, [user?.carbon_score, progress, user]);
+  }, [user?.carbon_saved, progress, user]);
 
   // ── Animated Styles ──
+  // Gradient is inverted vs. the old footprint design: progress 0 = gray ("just starting"),
+  // progress 1 = vibrant green ("climate champion"). Mid-progress flows through amber.
 
   const animatedBackground = useAnimatedStyle(() => ({
     backgroundColor: interpolateColor(
       progress.value,
       [0, 0.5, 1],
-      [BG_GREEN, BG_MID, BG_GRAY],
+      [BG_GRAY, BG_MID, BG_GREEN],
     ),
   }));
 
@@ -90,7 +89,7 @@ export const HomeScreen: React.FC = () => {
     backgroundColor: interpolateColor(
       progress.value,
       [0, 0.5, 1],
-      [COLOR_GREEN, COLOR_MID, COLOR_GRAY],
+      [COLOR_GRAY, COLOR_MID, COLOR_GREEN],
     ),
   }));
 
@@ -98,13 +97,13 @@ export const HomeScreen: React.FC = () => {
     color: interpolateColor(
       progress.value,
       [0, 0.5, 1],
-      [COLOR_GREEN, COLOR_MID, COLOR_GRAY],
+      [COLOR_GRAY, COLOR_MID, COLOR_GREEN],
     ),
   }));
 
   const animatedRingScale = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 + (1 - progress.value) * 0.15 }],
-    opacity: 1 - progress.value * 0.3,
+    transform: [{ scale: 0.85 + progress.value * 0.15 }],
+    opacity: 0.7 + progress.value * 0.3,
   }));
 
   // ── Pull to refresh ──
@@ -134,7 +133,8 @@ export const HomeScreen: React.FC = () => {
     );
   }
 
-  const score = user?.carbon_score ?? 0;
+  const saved = user?.carbon_saved ?? 0;
+  const footprint = user?.carbon_score ?? 0;
 
   return (
     <Animated.View style={[styles.container, animatedBackground]}>
@@ -148,23 +148,23 @@ export const HomeScreen: React.FC = () => {
         </Animated.Text>
       </View>
 
-      {/* ── Carbon Score Ring ── */}
+      {/* ── Carbon Savings Ring (hero metric) ── */}
       <Animated.View style={[styles.scoreRingOuter, animatedRingScale]}>
         <Animated.View style={[styles.scoreRingInner, animatedAccent]}>
-          <Text style={styles.scoreValue}>{score.toFixed(1)}</Text>
-          <Text style={styles.scoreUnit}>kg CO₂e</Text>
+          <Text style={styles.scoreValue}>{saved.toFixed(1)}</Text>
+          <Text style={styles.scoreUnit}>kg CO₂e saved</Text>
         </Animated.View>
       </Animated.View>
 
       <Animated.Text style={[styles.scoreLabel, animatedTextColor]}>
-        {getScoreLabel(score)}
+        {savingsTierLabel(saved)}
       </Animated.Text>
 
       {/* ── Stats Row ── */}
       <View style={styles.statsRow}>
         <StatCard
-          label="Saved"
-          value={`${(user?.carbon_saved ?? 0).toFixed(1)} kg`}
+          label="Footprint"
+          value={`${footprint.toFixed(1)} kg`}
         />
         <StatCard
           label="Streak"
@@ -188,7 +188,11 @@ export const HomeScreen: React.FC = () => {
 
       {/* ── Quick Actions ── */}
       <View style={styles.actionsRow}>
-        <ActionButton label="Log Trip" icon="🚲" onPress={() => {}} />
+        <ActionButton
+          label="Log Trip"
+          icon="🚲"
+          onPress={() => navigation.navigate('LogTrip')}
+        />
         <ActionButton label="Scan Item" icon="📷" onPress={() => {}} />
         <ActionButton label="Share" icon="🤝" onPress={() => {}} />
       </View>
