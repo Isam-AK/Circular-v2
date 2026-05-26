@@ -67,6 +67,10 @@ export interface MobilityLog {
   distance_km: number;
   duration_min: number | null;
   carbon_kg: number;
+  /** kg CO₂e saved vs. baseline petrol car. Populated on insert by the app
+   * (see emissions.ts savingsForTrip). The recalculate_carbon_saved RPC
+   * sums this column for the users.carbon_saved total. */
+  carbon_saved_kg: number;
   route: GeoLineString | null;
   start_point: GeoPoint | null;
   end_point: GeoPoint | null;

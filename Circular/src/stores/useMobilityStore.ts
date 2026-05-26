@@ -49,6 +49,7 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
         distance_km: distanceKm,
         duration_min: durationMin ?? null,
         carbon_kg: carbonKg,
+        carbon_saved_kg: savedKg,
         started_at: startedAt,
       })
       .select()
@@ -59,26 +60,19 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
       return null;
     }
 
-    // Recompute carbon_score on the server (sums transactions + mobility_logs).
-    const { error: recalcError } = await supabase.rpc('recalculate_carbon_score', {
-      target_user_id: authData.user.id,
-    });
-    if (recalcError) {
-      console.warn('[useMobilityStore] recalculate_carbon_score failed:', recalcError.message);
+    // Re-sum both totals from scratch on the server. Both RPCs SECURITY DEFINER,
+    // both idempotent — running them on every insert means users.carbon_score /
+    // carbon_saved can never drift from the underlying tables.
+    const [{ error: scoreErr }, { error: savedErr }] = await Promise.all([
+      supabase.rpc('recalculate_carbon_score', { target_user_id: authData.user.id }),
+      supabase.rpc('recalculate_carbon_saved', { target_user_id: authData.user.id }),
+    ]);
+    if (scoreErr) {
+      console.warn('[useMobilityStore] recalculate_carbon_score failed:', scoreErr.message);
     }
-
-    // Add this trip's savings to the user's lifetime total via atomic RPC
-    // (see migration 0003_increment_carbon_saved.sql).
-    if (savedKg > 0) {
-      const { error: incError } = await supabase.rpc('increment_carbon_saved', {
-        target_user_id: authData.user.id,
-        delta: savedKg,
-      });
-      if (incError) {
-        // Surface this — if the RPC is missing, carbon_saved will never update.
-        set({ error: `Trip logged, but savings update failed: ${incError.message}` });
-        console.warn('[useMobilityStore] increment_carbon_saved failed:', incError.message);
-      }
+    if (savedErr) {
+      set({ error: `Trip logged, but savings recalc failed: ${savedErr.message}` });
+      console.warn('[useMobilityStore] recalculate_carbon_saved failed:', savedErr.message);
     }
 
     // Refresh the user store so HomeScreen picks up the new carbon_saved + carbon_score.
