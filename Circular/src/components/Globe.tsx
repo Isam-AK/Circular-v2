@@ -83,43 +83,96 @@ half4 main(float2 fragCoord) {
   float v = acos(clamp(-n.y, -1.0, 1.0)) / 3.14159265359;
 
   // ── Continent / vegetation noise ──
-  // Sample FBM at moderate frequency for continent-scale blobs.
-  float landDensity = fbm(float2(u * 5.5, v * 5.5));
-  // A second higher-frequency layer adds vegetation detail on top of land.
-  float vegDetail   = fbm(float2(u * 14.0 + 5.0, v * 14.0 + 5.0));
+  // Lower frequency (4.0 down from 5.5) → fewer but larger, more recognizable
+  // continent shapes. Then a contrast push (smoothstep) so the noise sits
+  // closer to 0/1 than 0.5, making landmasses clearly defined instead of
+  // blending mushy edges.
+  float landDensityRaw = fbm(float2(u * 4.0, v * 4.0));
+  float landDensity = smoothstep(0.25, 0.75, landDensityRaw);
+
+  // Higher-frequency layer for "terrain relief" within continents — mountain
+  // ranges, river valleys, anything that catches light differently.
+  float vegDetail = fbm(float2(u * 12.0 + 5.0, v * 12.0 + 5.0));
+
+  // Even higher frequency for micro-texture (small surface speckle).
+  float microDetail = fbm(float2(u * 28.0 - 3.0, v * 28.0 - 3.0));
 
   // ── Lighting ──
+  // Higher ambient + softer falloff. The sphere now reads as a daytime
+  // planet rather than one half-lost in night shadow.
   float3 lightDir = normalize(float3(-0.45, -0.55, 0.8));
   float  diffuse  = max(0.0, dot(n, lightDir));
-  float  ambient  = 0.32;
+  float  ambient  = 0.65;
   float  lighting = ambient + (1.0 - ambient) * diffuse;
 
-  // Subtle specular for sheen on top-left
+  // Slightly brighter specular for a fresh, dewy sheen on top-left.
   float3 viewDir = float3(0.0, 0.0, 1.0);
   float3 halfwayDir = normalize(lightDir + viewDir);
-  float  spec = pow(max(0.0, dot(n, halfwayDir)), 32.0) * 0.35;
+  float  spec = pow(max(0.0, dot(n, halfwayDir)), 28.0) * 0.45;
 
-  // ── Surface colors, all driven by progress ──
-  // Ocean transitions from cool gray (progress=0) to deep eco-800 (progress=1).
-  half3 oceanLow  = half3(0.25, 0.25, 0.25);
-  half3 oceanHigh = half3(0.024, 0.373, 0.275);
-  half3 ocean = mix(oceanLow, oceanHigh, progress);
+  // ── Surface colors via 3-stop interpolation ──
+  // All stops lifted toward "luminous pastel" — no more deep gray/black at
+  // low progress, no more muddy olive in the middle. The planet always
+  // reads as alive; growth is more saturated greens rather than emerging
+  // from a dead grayscale.
+  //
+  // Ocean: cool soft mineral → warm honey-bronze → vibrant teal.
+  half3 oceanGray  = half3(0.480, 0.530, 0.560);  // cool gray-blue mineral
+  half3 oceanAmber = half3(0.620, 0.500, 0.220);  // warm honey-bronze
+  half3 oceanGreen = half3(0.090, 0.580, 0.450);  // bright teal-green
 
-  // Land transitions from olive-gray (progress=0) to vibrant eco-500.
-  half3 landLow  = half3(0.40, 0.40, 0.34);
-  half3 landHigh = half3(0.063, 0.725, 0.506);
-  half3 land = mix(landLow, landHigh, progress);
+  half3 ocean;
+  if (progress < 0.5) {
+    ocean = mix(oceanGray, oceanAmber, progress * 2.0);
+  } else {
+    ocean = mix(oceanAmber, oceanGreen, (progress - 0.5) * 2.0);
+  }
 
-  // Vegetation patches inside land — darker, denser green at high progress.
-  half3 vegHigh  = half3(0.024, 0.541, 0.353); // eco-700
-  half3 landFinal = mix(land, vegHigh, smoothstep(0.45, 0.75, vegDetail) * progress);
+  // Land: warm sand → sunny amber → bright lime. Higher saturation
+  // throughout, no olive-gray dead zone.
+  half3 landGray  = half3(0.780, 0.720, 0.580);   // soft sand / beige
+  half3 landAmber = half3(0.960, 0.780, 0.300);   // bright sunny amber
+  half3 landGreen = half3(0.220, 0.830, 0.560);   // vibrant lime-green
 
-  // Smooth transition between ocean and land based on noise threshold,
-  // narrower band at higher progress (sharper coastlines).
-  float coastWidth = mix(0.18, 0.08, progress);
+  half3 land;
+  if (progress < 0.5) {
+    land = mix(landGray, landAmber, progress * 2.0);
+  } else {
+    land = mix(landAmber, landGreen, (progress - 0.5) * 2.0);
+  }
+
+  // Vegetation / mountain patches — slightly warmer/darker than base land
+  // for depth, but never muddy.
+  half3 vegHigh  = half3(0.060, 0.650, 0.420); // bright forest green
+  half3 vegLow   = half3(0.780, 0.580, 0.220); // warm tan/wheat
+  half3 vegColor;
+  if (progress < 0.5) {
+    vegColor = mix(landGray * half(0.85), vegLow, progress * 2.0);
+  } else {
+    vegColor = mix(vegLow, vegHigh, (progress - 0.5) * 2.0);
+  }
+
+  // Gentler terrain relief — was ±20%, now ±8%. Still readable as
+  // hills/valleys but no more harsh dark scars across the continents.
+  float relief = 0.92 + 0.16 * vegDetail;
+  half3 landRelief = land * half(relief);
+
+  // Vegetation patch overlay. Same intensity curve as before but on a
+  // brighter base, so patches feel like rich greenery instead of stains.
+  half3 landFinal = mix(landRelief, vegColor, smoothstep(0.5, 0.85, vegDetail) * progress);
+
+  // Even subtler micro-speckle — ±3% instead of ±5%.
+  landFinal *= half(0.97 + 0.06 * microDetail);
+
+  // Sharper coastlines than the original — narrow transition band.
+  float coastWidth = mix(0.08, 0.03, progress);
   float landMask = smoothstep(0.5 - coastWidth, 0.5 + coastWidth, landDensity);
 
-  half3 surface = mix(ocean, landFinal, landMask);
+  // Ocean depth variation — gentler now, ±9% rather than ±18%.
+  float depthNoise = fbm(float2(u * 2.5 + 7.0, v * 2.5 + 7.0));
+  half3 oceanShaded = ocean * half(0.94 + 0.12 * depthNoise);
+
+  half3 surface = mix(oceanShaded, landFinal, landMask);
 
   // Apply lighting + specular
   half3 lit = surface * half(lighting) + half3(spec);
@@ -189,15 +242,34 @@ export const Globe: React.FC<GlobeProps> = ({ savedKg }) => {
     };
   }, [clock, progress, geom?.cx, geom?.cy, geom?.r]);
 
-  // Atmosphere color follows progress on the same gray→eco-500 axis.
+  // Atmosphere color: 3-stop palette (carbon-400 → amber-300 → eco-300)
+  // — lighter than the sphere surface so the halo reads as warm glow rather
+  // than dark shadow. Matches the score ring's color story but at higher
+  // value (more white in each stop).
   const atmosphere = useMemo(() => {
-    const r = Math.round(82 + (16 - 82) * progress);
-    const g = Math.round(82 + (185 - 82) * progress);
-    const b = Math.round(82 + (129 - 82) * progress);
-    const color = `rgb(${r}, ${g}, ${b})`;
+    // Lighter stops than the surface uses.
+    const lo: [number, number, number] = [163, 163, 163];  // carbon-400
+    const mid: [number, number, number] = [252, 211, 77];  // amber-300
+    const hi: [number, number, number] = [110, 231, 183];  // eco-300
+
+    let r: number, g: number, b: number;
+    if (progress < 0.5) {
+      const t = progress * 2;
+      r = Math.round(lo[0] + (mid[0] - lo[0]) * t);
+      g = Math.round(lo[1] + (mid[1] - lo[1]) * t);
+      b = Math.round(lo[2] + (mid[2] - lo[2]) * t);
+    } else {
+      const t = (progress - 0.5) * 2;
+      r = Math.round(mid[0] + (hi[0] - mid[0]) * t);
+      g = Math.round(mid[1] + (hi[1] - mid[1]) * t);
+      b = Math.round(mid[2] + (hi[2] - mid[2]) * t);
+    }
+
     return {
-      color,
-      opacity: 0.18 + progress * 0.5,
+      color: `rgb(${r}, ${g}, ${b})`,
+      // Lower base opacity too: was 0.18 + 0.5p, now 0.12 + 0.3p — the halo
+      // now hints at the globe color instead of bleeding into a heavy ring.
+      opacity: 0.12 + progress * 0.3,
     };
   }, [progress]);
 

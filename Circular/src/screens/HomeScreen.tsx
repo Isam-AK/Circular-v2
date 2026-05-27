@@ -18,7 +18,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useUserStore } from '@/stores/useUserStore';
 import { savingsTierLabel } from '@/lib/emissions';
-import { Globe } from '@/components/Globe';
 import type { AppStackParamList } from './navigation';
 
 // ── Constants ──────────────────────────────────────────────
@@ -186,10 +185,20 @@ export const HomeScreen: React.FC = () => {
         />
       </View>
 
-      {/* ── 3D Globe — color reflects lifetime savings ── */}
-      <View style={styles.globeContainer}>
-        <Globe savedKg={saved} />
-      </View>
+      {/* ── "View your globe" CTA — opens GlobeScreen modal ── */}
+      <Pressable
+        onPress={() => navigation.navigate('Globe')}
+        style={styles.globeCta}
+      >
+        <Text style={styles.globeCtaIcon}>🌍</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.globeCtaTitle}>View your impact globe</Text>
+          <Text style={styles.globeCtaSubtitle}>
+            See your sustainability planet
+          </Text>
+        </View>
+        <Text style={styles.globeCtaArrow}>›</Text>
+      </Pressable>
 
       {/* ── Quick Actions ── */}
       <View style={styles.actionsRow}>
@@ -346,13 +355,35 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // 3D globe
-  globeContainer: {
-    height: 220,
+  // "View your globe" CTA card — opens the GlobeScreen modal
+  globeCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
     marginBottom: 24,
-    // Transparent background so the globe blends with the score-driven
-    // background color animating behind it.
-    backgroundColor: 'transparent',
+  },
+  globeCtaIcon: {
+    fontSize: 32,
+    marginRight: 14,
+  },
+  globeCtaTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#171717',
+  },
+  globeCtaSubtitle: {
+    fontSize: 12,
+    color: '#737373',
+    marginTop: 2,
+  },
+  globeCtaArrow: {
+    fontSize: 24,
+    color: '#a3a3a3',
+    fontWeight: '300',
+    marginLeft: 8,
   },
 
   // Quick actions

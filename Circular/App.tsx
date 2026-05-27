@@ -13,6 +13,7 @@ import { SignUpScreen } from './src/screens/SignUpScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { TripsScreen } from './src/screens/TripsScreen';
 import { LogTripScreen } from './src/screens/LogTripScreen';
+import { GlobeScreen } from './src/screens/GlobeScreen';
 import type {
   AppStackParamList,
   AuthStackParamList,
@@ -85,6 +86,14 @@ const AppNavigator: React.FC = () => (
     >
       {({ navigation }) => (
         <LogTripScreen onClose={() => navigation.goBack()} />
+      )}
+    </AppStack.Screen>
+    <AppStack.Screen
+      name="Globe"
+      options={{ presentation: 'modal', gestureEnabled: true }}
+    >
+      {({ navigation }) => (
+        <GlobeScreen onClose={() => navigation.goBack()} />
       )}
     </AppStack.Screen>
   </AppStack.Navigator>

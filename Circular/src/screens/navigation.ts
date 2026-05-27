@@ -19,4 +19,5 @@ export type RootTabParamList = {
 export type AppStackParamList = {
   Tabs: undefined;
   LogTrip: undefined;
+  Globe: undefined;
 };
