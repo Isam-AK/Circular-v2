@@ -3,13 +3,34 @@ import { create as createPlaidLink, open as openPlaidLink } from 'react-native-p
 import type { LinkSuccess, LinkExit } from 'react-native-plaid-link-sdk';
 import { supabase } from '@/lib/supabase';
 import { useUserStore } from '@/stores/useUserStore';
+import type { Transaction } from '@/types/database';
+
+/** Result summary returned by the plaid-sync-transactions Edge Function. */
+interface SyncSummary {
+  fetched: number;
+  upserted: number;
+  total_carbon_kg: number;
+  /** ISO timestamp recorded client-side when the sync completed. */
+  at: string;
+}
 
 interface PlaidState {
+  // ── Phase 1: Connect bank ──
   /** True while a connect attempt is in flight (link-token fetch + Link UI + exchange). */
   busy: boolean;
   error: string | null;
   /** Last successful Plaid item_id (also persisted on users.plaid_item_id). */
   lastItemId: string | null;
+
+  // ── Phase 2: Transaction sync ──
+  /** Most recent transactions for the user, newest first. Populated by
+   *  fetchRecentTransactions / syncTransactions. */
+  transactions: Transaction[];
+  /** True while plaid-sync-transactions is in flight. */
+  syncing: boolean;
+  syncError: string | null;
+  /** Last successful sync result (counts + carbon total + when). */
+  lastSync: SyncSummary | null;
 
   /**
    * Kick off the full Plaid Link → exchange → refresh flow. Side effects:
@@ -22,12 +43,35 @@ interface PlaidState {
    */
   connectBank: () => Promise<void>;
   clearError: () => void;
+
+  /**
+   * Pull the last 30 days of transactions from Plaid, classify them against
+   * Climatiq emission factors (server-side), and upsert into
+   * public.transactions. After the upsert the server also recalculates
+   * users.carbon_score, so this also refreshes the local user.
+   */
+  syncTransactions: () => Promise<void>;
+
+  /**
+   * Load the most recent N transactions from the DB without calling Plaid.
+   * Useful on screen mount so the list is populated even before the user
+   * taps Sync.
+   */
+  fetchRecentTransactions: (limit?: number) => Promise<void>;
+  clearSyncError: () => void;
 }
+
+const DEFAULT_RECENT_LIMIT = 10;
 
 export const usePlaidStore = createStore<PlaidState>((set) => ({
   busy: false,
   error: null,
   lastItemId: null,
+
+  transactions: [],
+  syncing: false,
+  syncError: null,
+  lastSync: null,
 
   connectBank: async () => {
     set({ busy: true, error: null });
@@ -103,4 +147,66 @@ export const usePlaidStore = createStore<PlaidState>((set) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  syncTransactions: async () => {
+    set({ syncing: true, syncError: null });
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'plaid-sync-transactions',
+        { body: {} },
+      );
+
+      if (error || !data?.ok) {
+        const msg =
+          error?.message ?? data?.error ?? 'Could not sync transactions';
+        set({ syncing: false, syncError: msg });
+        return;
+      }
+
+      // Refresh dependent state in parallel:
+      //   - user row (carbon_score changed server-side after upsert)
+      //   - the recent-transactions list
+      const summary: SyncSummary = {
+        fetched: data.fetched ?? 0,
+        upserted: data.upserted ?? 0,
+        total_carbon_kg: data.total_carbon_kg ?? 0,
+        at: new Date().toISOString(),
+      };
+
+      await Promise.all([
+        useUserStore.getState().fetchUser(),
+        (async () => {
+          const { data: rows, error: selectError } = await supabase
+            .from('transactions')
+            .select('*')
+            .order('transaction_date', { ascending: false })
+            .limit(DEFAULT_RECENT_LIMIT);
+          if (!selectError && rows) {
+            set({ transactions: rows as Transaction[] });
+          }
+        })(),
+      ]);
+
+      set({ syncing: false, lastSync: summary });
+    } catch (e) {
+      set({ syncing: false, syncError: (e as Error).message });
+    }
+  },
+
+  fetchRecentTransactions: async (limit = DEFAULT_RECENT_LIMIT) => {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .order('transaction_date', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      set({ syncError: error.message });
+      return;
+    }
+    set({ transactions: (data ?? []) as Transaction[] });
+  },
+
+  clearSyncError: () => set({ syncError: null }),
 }));
