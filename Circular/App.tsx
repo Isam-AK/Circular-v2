@@ -17,6 +17,7 @@ import { GlobeScreen } from './src/screens/GlobeScreen';
 import { ShareScreen } from './src/screens/ShareScreen';
 import { ScanItemScreen } from './src/screens/ScanItemScreen';
 import { ShareItemScreen } from './src/screens/ShareItemScreen';
+import { AvatarCaptureScreen } from './src/screens/AvatarCaptureScreen';
 import type {
   AppStackParamList,
   AuthStackParamList,
@@ -113,6 +114,14 @@ const AppNavigator: React.FC = () => (
           onClose={() => navigation.goBack()}
           initialPhotoUri={route.params?.initialPhotoUri}
         />
+      )}
+    </AppStack.Screen>
+    <AppStack.Screen
+      name="AvatarCapture"
+      options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+    >
+      {({ navigation }) => (
+        <AvatarCaptureScreen onClose={() => navigation.goBack()} />
       )}
     </AppStack.Screen>
   </AppStack.Navigator>

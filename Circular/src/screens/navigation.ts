@@ -26,4 +26,6 @@ export type AppStackParamList = {
   /** "List an item to share" form. May arrive empty (FAB on Share tab)
    *  or pre-filled with a photo from the Scan flow. */
   ShareItem: { initialPhotoUri?: string } | undefined;
+  /** Camera-first avatar update. On capture uploads + dismisses. */
+  AvatarCapture: undefined;
 };
