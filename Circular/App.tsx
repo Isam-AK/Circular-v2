@@ -14,6 +14,9 @@ import { ProfileScreen } from './src/screens/ProfileScreen';
 import { TripsScreen } from './src/screens/TripsScreen';
 import { LogTripScreen } from './src/screens/LogTripScreen';
 import { GlobeScreen } from './src/screens/GlobeScreen';
+import { ShareScreen } from './src/screens/ShareScreen';
+import { ScanItemScreen } from './src/screens/ScanItemScreen';
+import { ShareItemScreen } from './src/screens/ShareItemScreen';
 import type {
   AppStackParamList,
   AuthStackParamList,
@@ -25,16 +28,6 @@ import { useUserStore } from './src/stores/useUserStore';
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
-
-// Placeholder screens for tabs not yet built
-const PlaceholderScreen: React.FC<{ name: string }> = ({ name }) => {
-  const { View, Text } = require('react-native');
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ecfdf5' }}>
-      <Text style={{ fontSize: 18, color: '#059669', fontWeight: '600' }}>{name} — Coming Soon</Text>
-    </View>
-  );
-};
 
 const TabsNavigator: React.FC = () => (
   <Tab.Navigator
@@ -65,10 +58,9 @@ const TabsNavigator: React.FC = () => (
     />
     <Tab.Screen
       name="Share"
+      component={ShareScreen}
       options={{ tabBarLabel: 'Share', tabBarIcon: () => null }}
-    >
-      {() => <PlaceholderScreen name="Share" />}
-    </Tab.Screen>
+    />
     <Tab.Screen
       name="Profile"
       component={ProfileScreen}
@@ -94,6 +86,33 @@ const AppNavigator: React.FC = () => (
     >
       {({ navigation }) => (
         <GlobeScreen onClose={() => navigation.goBack()} />
+      )}
+    </AppStack.Screen>
+    <AppStack.Screen
+      name="ScanItem"
+      options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+    >
+      {({ navigation }) => (
+        <ScanItemScreen
+          onClose={() => navigation.goBack()}
+          // Replace the camera modal with the share form so "Cancel"
+          // on the form returns to wherever the user opened Scan from
+          // (Home or Share tab), not back to the camera.
+          onPhotoCaptured={(photoUri) =>
+            navigation.replace('ShareItem', { initialPhotoUri: photoUri })
+          }
+        />
+      )}
+    </AppStack.Screen>
+    <AppStack.Screen
+      name="ShareItem"
+      options={{ presentation: 'modal', gestureEnabled: true }}
+    >
+      {({ navigation, route }) => (
+        <ShareItemScreen
+          onClose={() => navigation.goBack()}
+          initialPhotoUri={route.params?.initialPhotoUri}
+        />
       )}
     </AppStack.Screen>
   </AppStack.Navigator>

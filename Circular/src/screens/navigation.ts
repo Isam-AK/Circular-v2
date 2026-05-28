@@ -20,4 +20,10 @@ export type AppStackParamList = {
   Tabs: undefined;
   LogTrip: undefined;
   Globe: undefined;
+  /** Camera-first scan flow. Captures a photo, then auto-jumps to
+   *  ShareItem with the photo pre-attached. */
+  ScanItem: undefined;
+  /** "List an item to share" form. May arrive empty (FAB on Share tab)
+   *  or pre-filled with a photo from the Scan flow. */
+  ShareItem: { initialPhotoUri?: string } | undefined;
 };

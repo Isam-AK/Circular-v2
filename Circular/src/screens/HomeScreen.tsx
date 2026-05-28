@@ -207,8 +207,18 @@ export const HomeScreen: React.FC = () => {
           icon="🚲"
           onPress={() => navigation.navigate('LogTrip')}
         />
-        <ActionButton label="Scan Item" icon="📷" onPress={() => {}} />
-        <ActionButton label="Share" icon="🤝" onPress={() => {}} />
+        <ActionButton
+          label="Scan Item"
+          icon="📷"
+          onPress={() => navigation.navigate('ScanItem')}
+        />
+        <ActionButton
+          label="Share"
+          icon="🤝"
+          // Hop into the Share tab inside the parent Tabs navigator.
+          // The tab itself owns its own data fetch on focus.
+          onPress={() => navigation.getParent()?.navigate('Tabs', { screen: 'Share' })}
+        />
       </View>
     </Animated.View>
   );
