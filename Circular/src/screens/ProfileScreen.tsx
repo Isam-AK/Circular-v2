@@ -6,17 +6,55 @@ import { useUserStore } from '@/stores/useUserStore';
 import { usePlaidStore } from '@/stores/usePlaidStore';
 import type { Transaction, TransactionCategory } from '@/types/database';
 
-const CATEGORY_EMOJI: Record<TransactionCategory, string> = {
-  food: '🍽️',
-  transport: '🚗',
-  housing: '🏠',
-  clothing: '🛍️',
-  electronics: '🔌',
-  services: '🧾',
-  entertainment: '🎬',
-  utilities: '💡',
-  other: '•',
-};
+/**
+ * Pick the best emoji + human-readable label for a transaction. We prefer
+ * the climatiq_activity_id (most specific — distinguishes air vs road
+ * transport, electronics vs clothing, restaurant vs groceries, etc.) and
+ * fall back to the broader DB category when the activity id is missing
+ * or unrecognised.
+ */
+function displayMetaFor(tx: Transaction): { emoji: string; label: string } {
+  const aid = tx.climatiq_activity_id ?? '';
+
+  // Most specific → least specific. Order matters: e.g. the air_transport
+  // check must come before any generic "transport" check.
+  if (aid === 'circular:no-impact') return { emoji: '💸', label: 'Transfer' };
+  if (aid === 'circular:micromobility') return { emoji: '🛴', label: 'Micromobility' };
+  if (aid.includes('passenger_air_transport')) return { emoji: '✈️', label: 'Flight' };
+  if (aid.includes('passenger_rail_transport')) return { emoji: '🚆', label: 'Transit' };
+  if (aid.includes('passenger_road_transport')) return { emoji: '🚗', label: 'Road transport' };
+  if (aid.includes('motor_gasoline')) return { emoji: '⛽', label: 'Gas' };
+  if (aid.includes('accommodation')) return { emoji: '🏨', label: 'Lodging' };
+  if (aid.includes('restaurants_food_services')) return { emoji: '🍽️', label: 'Restaurant' };
+  if (aid.includes('food_beverages_tobacco')) return { emoji: '🛒', label: 'Food & drink' };
+  if (aid.includes('electrical_equipment')) return { emoji: '🔌', label: 'Electronics' };
+  if (aid.includes('textiles')) return { emoji: '👕', label: 'Clothing' };
+  if (aid.includes('paper_products')) return { emoji: '📚', label: 'Books / paper' };
+  if (aid.includes('residential_buildings')) return { emoji: '🏠', label: 'Home improvement' };
+  if (aid.includes('electricity-supply')) return { emoji: '💡', label: 'Electricity' };
+  if (aid.includes('water_supply')) return { emoji: '💧', label: 'Water' };
+  if (aid.includes('telecommunications')) return { emoji: '📡', label: 'Internet / cable' };
+  if (aid.includes('recreational_cultural_sporting')) return { emoji: '🎬', label: 'Entertainment' };
+  if (aid.includes('health_social_work')) return { emoji: '🏥', label: 'Healthcare' };
+  if (aid.includes('public_administration')) return { emoji: '🏛️', label: 'Government' };
+  if (aid.includes('other_services')) return { emoji: '🧾', label: 'Services' };
+  if (aid.includes('other_manufactured_goods')) return { emoji: '🛍️', label: 'Merchandise' };
+
+  // Fallback by DB category (for rows synced before Phase 2 polish, or
+  // anything the activity-id matcher missed).
+  const dbFallback: Record<TransactionCategory, { emoji: string; label: string }> = {
+    food:          { emoji: '🍽️', label: 'Food' },
+    transport:     { emoji: '🚗', label: 'Transport' },
+    housing:       { emoji: '🏠', label: 'Housing' },
+    clothing:      { emoji: '🛍️', label: 'Clothing' },
+    electronics:   { emoji: '🔌', label: 'Electronics' },
+    services:      { emoji: '🧾', label: 'Services' },
+    entertainment: { emoji: '🎬', label: 'Entertainment' },
+    utilities:     { emoji: '💡', label: 'Utilities' },
+    other:         { emoji: '•',  label: 'Other' },
+  };
+  return dbFallback[tx.category] ?? { emoji: '•', label: 'Other' };
+}
 
 /** Renders e.g. "May 14" for a transaction_date (YYYY-MM-DD). */
 function shortDate(iso: string): string {
@@ -43,16 +81,17 @@ const TransactionRow: React.FC<{ tx: Transaction }> = ({ tx }) => {
   // coerce on read so .toFixed() / arithmetic don't blow up.
   const amount = Number(tx.amount);
   const carbonKg = Number(tx.carbon_kg);
+  const { emoji, label } = displayMetaFor(tx);
 
   return (
     <View className="flex-row items-center py-3 border-t border-carbon-100">
-      <Text className="text-lg mr-3">{CATEGORY_EMOJI[tx.category] ?? '•'}</Text>
+      <Text className="text-lg mr-3">{emoji}</Text>
       <View className="flex-1 mr-3">
         <Text className="text-carbon-900 text-sm font-medium" numberOfLines={1}>
           {tx.merchant_name ?? 'Unknown merchant'}
         </Text>
         <Text className="text-carbon-500 text-xs">
-          {shortDate(tx.transaction_date)} · {tx.category}
+          {shortDate(tx.transaction_date)} · {label}
         </Text>
       </View>
       <View className="items-end">

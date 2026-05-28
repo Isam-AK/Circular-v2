@@ -17,7 +17,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.208.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { classify } from '../_shared/spend-carbon.ts';
+import { classifyTransaction } from '../_shared/spend-carbon.ts';
 
 const PLAID_CLIENT_ID = Deno.env.get('PLAID_CLIENT_ID');
 const PLAID_SECRET = Deno.env.get('PLAID_SECRET');
@@ -116,16 +116,22 @@ serve(async (req: Request) => {
 
     // ── Map Plaid txns → DB rows ──
     const rows = transactions.map((t: any) => {
-      const primary: string =
+      // Prefer `detailed` (e.g. TRAVEL_FLIGHTS) for the tightest factor; fall
+      // back to `primary`, then to the legacy `category[]` array if neither
+      // PFC field is present (older Plaid items).
+      const detailed: string | null = t.personal_finance_category?.detailed ?? null;
+      const primary: string | null =
         t.personal_finance_category?.primary ??
-        (Array.isArray(t.category) && t.category.length > 0 ? t.category[0].toUpperCase().replace(/ /g, '_') : 'OTHER');
+        (Array.isArray(t.category) && t.category.length > 0
+          ? t.category[0].toUpperCase().replace(/ /g, '_')
+          : null);
 
-      const { dbCategory, factor } = classify(primary);
+      const mapping = classifyTransaction(detailed, primary);
 
       // Plaid amounts are POSITIVE for outflows (spending) and NEGATIVE for
       // inflows. Carbon is only meaningful for outflows.
       const amount = Number(t.amount);
-      const carbonKg = amount > 0 ? Math.round(factor.kgPerUsd * amount * 10_000) / 10_000 : 0;
+      const carbonKg = amount > 0 ? Math.round(mapping.kgPerUsd * amount * 10_000) / 10_000 : 0;
 
       return {
         user_id: user.id,
@@ -134,9 +140,9 @@ serve(async (req: Request) => {
         amount,
         currency: t.iso_currency_code ?? 'USD',
         transaction_date: t.date,
-        category: dbCategory,
+        category: mapping.dbCategory,
         carbon_kg: carbonKg,
-        climatiq_activity_id: factor.activityId,
+        climatiq_activity_id: mapping.activityId,
         raw_payload: t,
       };
     });
