@@ -10,6 +10,10 @@ interface SyncSummary {
   fetched: number;
   upserted: number;
   total_carbon_kg: number;
+  /** How many rows were scored with a live Climatiq factor. */
+  liveFactorCount: number;
+  /** How many fell back to the Phase 2 hardcoded factor. */
+  fallbackFactorCount: number;
   /** ISO timestamp recorded client-side when the sync completed. */
   at: string;
 }
@@ -171,6 +175,8 @@ export const usePlaidStore = createStore<PlaidState>((set) => ({
         fetched: data.fetched ?? 0,
         upserted: data.upserted ?? 0,
         total_carbon_kg: data.total_carbon_kg ?? 0,
+        liveFactorCount: data.live_factor_count ?? 0,
+        fallbackFactorCount: data.fallback_factor_count ?? 0,
         at: new Date().toISOString(),
       };
 

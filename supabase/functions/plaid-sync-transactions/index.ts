@@ -2,22 +2,27 @@
 // plaid-sync-transactions
 //
 // Pulls the last 30 days of transactions from Plaid for the authenticated
-// user, maps each to a CO₂e estimate using the spend-carbon factors in
-// _shared/spend-carbon.ts, and upserts them into public.transactions.
-// Idempotent via Plaid's stable `transaction_id` (DB column
-// `plaid_transaction_id` has a UNIQUE constraint).
+// user, classifies each into a Climatiq `activity_id` + DB category via
+// _shared/spend-carbon.ts, resolves the kg-CO2e-per-USD factor for each
+// unique activity from Climatiq (with a 30-day DB cache + graceful
+// fallback to hardcoded factors) via _shared/climatiq.ts, and upserts
+// the resulting rows into public.transactions. Idempotent via Plaid's
+// stable `transaction_id` (DB column `plaid_transaction_id` has a
+// UNIQUE constraint).
 //
 // After insert, calls recalculate_carbon_score so users.carbon_score
 // reflects spending impact alongside mobility logs.
 //
-// Phase 2 of the Plaid integration. Phase 3 (deferred) would replace the
-// hardcoded factors with live Climatiq API estimates.
+// Phase 3 of the Plaid integration. Phase 1 added the bank-connect
+// flow; Phase 2 added classification + hardcoded factors; this phase
+// adds live Climatiq lookups behind a cache.
 // ============================================================
 
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.208.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { classifyTransaction } from '../_shared/spend-carbon.ts';
+import { getFactors } from '../_shared/climatiq.ts';
 
 const PLAID_CLIENT_ID = Deno.env.get('PLAID_CLIENT_ID');
 const PLAID_SECRET = Deno.env.get('PLAID_SECRET');
@@ -114,8 +119,10 @@ serve(async (req: Request) => {
 
     const transactions: any[] = plaidBody.transactions ?? [];
 
-    // ── Map Plaid txns → DB rows ──
-    const rows = transactions.map((t: any) => {
+    // ── Step 1: Classify each Plaid txn → activity_id + dbCategory ──
+    // The mapping carries a hardcoded `kgPerUsd` (the Phase 2 fallback)
+    // which we'll feed into the Climatiq lookup as the safety net.
+    const classifications = transactions.map((t: any) => {
       // Prefer `detailed` (e.g. TRAVEL_FLIGHTS) for the tightest factor; fall
       // back to `primary`, then to the legacy `category[]` array if neither
       // PFC field is present (older Plaid items).
@@ -125,13 +132,38 @@ serve(async (req: Request) => {
         (Array.isArray(t.category) && t.category.length > 0
           ? t.category[0].toUpperCase().replace(/ /g, '_')
           : null);
+      return { t, mapping: classifyTransaction(detailed, primary) };
+    });
 
-      const mapping = classifyTransaction(detailed, primary);
+    // ── Step 2: Resolve live factors (Climatiq + cache + fallback) ──
+    // Build the activity_id → hardcoded-kg fallback map so getFactors can
+    // gracefully degrade per-id if Climatiq misses or errors.
+    const fallbackByActivity = new Map<string, number>();
+    for (const { mapping } of classifications) {
+      // First entry wins; identical activity_ids always carry the same
+      // hardcoded factor so duplicates would be redundant anyway.
+      if (!fallbackByActivity.has(mapping.activityId)) {
+        fallbackByActivity.set(mapping.activityId, mapping.kgPerUsd);
+      }
+    }
+    const factors = await getFactors(
+      Array.from(fallbackByActivity.keys()),
+      serviceClient,
+      (id) => fallbackByActivity.get(id) ?? 0,
+    );
+
+    // ── Step 3: Build DB rows ──
+    const rows = classifications.map(({ t, mapping }) => {
+      const factor = factors.get(mapping.activityId) ?? {
+        kgPerUsd: mapping.kgPerUsd,
+        source: 'fallback',
+      };
 
       // Plaid amounts are POSITIVE for outflows (spending) and NEGATIVE for
       // inflows. Carbon is only meaningful for outflows.
       const amount = Number(t.amount);
-      const carbonKg = amount > 0 ? Math.round(mapping.kgPerUsd * amount * 10_000) / 10_000 : 0;
+      const carbonKg =
+        amount > 0 ? Math.round(factor.kgPerUsd * amount * 10_000) / 10_000 : 0;
 
       return {
         user_id: user.id,
@@ -143,6 +175,7 @@ serve(async (req: Request) => {
         category: mapping.dbCategory,
         carbon_kg: carbonKg,
         climatiq_activity_id: mapping.activityId,
+        factor_source: factor.source,
         raw_payload: t,
       };
     });
@@ -172,6 +205,8 @@ serve(async (req: Request) => {
     }
 
     const totalCarbon = rows.reduce((sum, r) => sum + r.carbon_kg, 0);
+    const liveCount = rows.filter((r) => r.factor_source.startsWith('climatiq:')).length;
+    const fallbackCount = rows.length - liveCount;
 
     return new Response(
       JSON.stringify({
@@ -179,6 +214,8 @@ serve(async (req: Request) => {
         fetched: transactions.length,
         upserted,
         total_carbon_kg: Math.round(totalCarbon * 100) / 100,
+        live_factor_count: liveCount,
+        fallback_factor_count: fallbackCount,
       }),
       {
         status: 200,

@@ -56,6 +56,11 @@ export interface Transaction {
   category: TransactionCategory;
   carbon_kg: number;
   climatiq_activity_id: string | null;
+  /** Provenance of carbon_kg: 'climatiq:<source>' when the factor came
+   *  from a live Climatiq lookup, 'fallback' when we used the hardcoded
+   *  Phase 2 factor (Climatiq miss / error / unset key), null for rows
+   *  synced before Phase 3 shipped. */
+  factor_source: string | null;
   raw_payload: Record<string, unknown> | null;
   created_at: string;
 }

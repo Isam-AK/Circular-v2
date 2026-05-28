@@ -8,37 +8,54 @@ import type { Transaction, TransactionCategory } from '@/types/database';
 
 /**
  * Pick the best emoji + human-readable label for a transaction. We prefer
- * the climatiq_activity_id (most specific — distinguishes air vs road
+ * the climatiq_activity_id (most specific — distinguishes air vs ground
  * transport, electronics vs clothing, restaurant vs groceries, etc.) and
  * fall back to the broader DB category when the activity id is missing
  * or unrecognised.
+ *
+ * Substring patterns target the CEDA activity_id taxonomy (see
+ * supabase/functions/_shared/spend-carbon.ts). Order matters: most
+ * specific match first, so e.g. `book_publishers` is checked before
+ * the generic `paper_products` prefix.
  */
 function displayMetaFor(tx: Transaction): { emoji: string; label: string } {
   const aid = tx.climatiq_activity_id ?? '';
 
-  // Most specific → least specific. Order matters: e.g. the air_transport
-  // check must come before any generic "transport" check.
+  // Internal sentinels first.
   if (aid === 'circular:no-impact') return { emoji: '💸', label: 'Transfer' };
   if (aid === 'circular:micromobility') return { emoji: '🛴', label: 'Micromobility' };
-  if (aid.includes('passenger_air_transport')) return { emoji: '✈️', label: 'Flight' };
-  if (aid.includes('passenger_rail_transport')) return { emoji: '🚆', label: 'Transit' };
-  if (aid.includes('passenger_road_transport')) return { emoji: '🚗', label: 'Road transport' };
-  if (aid.includes('motor_gasoline')) return { emoji: '⛽', label: 'Gas' };
-  if (aid.includes('accommodation')) return { emoji: '🏨', label: 'Lodging' };
-  if (aid.includes('restaurants_food_services')) return { emoji: '🍽️', label: 'Restaurant' };
-  if (aid.includes('food_beverages_tobacco')) return { emoji: '🛒', label: 'Food & drink' };
-  if (aid.includes('electrical_equipment')) return { emoji: '🔌', label: 'Electronics' };
-  if (aid.includes('textiles')) return { emoji: '👕', label: 'Clothing' };
-  if (aid.includes('paper_products')) return { emoji: '📚', label: 'Books / paper' };
-  if (aid.includes('residential_buildings')) return { emoji: '🏠', label: 'Home improvement' };
-  if (aid.includes('electricity-supply')) return { emoji: '💡', label: 'Electricity' };
-  if (aid.includes('water_supply')) return { emoji: '💧', label: 'Water' };
-  if (aid.includes('telecommunications')) return { emoji: '📡', label: 'Internet / cable' };
-  if (aid.includes('recreational_cultural_sporting')) return { emoji: '🎬', label: 'Entertainment' };
-  if (aid.includes('health_social_work')) return { emoji: '🏥', label: 'Healthcare' };
-  if (aid.includes('public_administration')) return { emoji: '🏛️', label: 'Government' };
-  if (aid.includes('other_services')) return { emoji: '🧾', label: 'Services' };
-  if (aid.includes('other_manufactured_goods')) return { emoji: '🛍️', label: 'Merchandise' };
+
+  // CEDA — most specific → least specific.
+  if (aid.includes('air_transportation')) return { emoji: '✈️', label: 'Flight' };
+  if (aid.includes('transit_and_ground_passenger_transportation'))
+    return { emoji: '🚆', label: 'Ground transit' };
+  if (aid.includes('automotive_equipment_rental')) return { emoji: '🚗', label: 'Car rental' };
+  if (aid.includes('gasoline_stations')) return { emoji: '⛽', label: 'Gas' };
+  if (aid.includes('limited_service_restaurants')) return { emoji: '🥡', label: 'Quick service' };
+  if (aid.includes('full_service_restaurants')) return { emoji: '🍽️', label: 'Restaurant' };
+  if (aid.includes('food_and_beverage_stores')) return { emoji: '🛒', label: 'Groceries' };
+  if (aid.includes('clothing_and_clothing_accessories_stores'))
+    return { emoji: '👕', label: 'Clothing' };
+  if (aid.includes('electronics-type_')) return { emoji: '🔌', label: 'Electronics' };
+  if (aid.includes('book_publishers')) return { emoji: '📚', label: 'Books' };
+  if (aid.includes('accommodation-type_accommodation')) return { emoji: '🏨', label: 'Lodging' };
+  if (aid.includes('cable_and_other_subscription_programming'))
+    return { emoji: '📺', label: 'Cable / TV' };
+  if (aid.includes('internet_publishing_and_broadcasting'))
+    return { emoji: '📡', label: 'Internet' };
+  if (aid.includes('amusement_parks_arcades')) return { emoji: '🎢', label: 'Amusement' };
+  if (aid.includes('other_amusement_and_recreation'))
+    return { emoji: '🎬', label: 'Entertainment' };
+  if (aid.includes('spectator_sports')) return { emoji: '🏟️', label: 'Spectator sports' };
+  if (aid.includes('electricity-supply_electric_power'))
+    return { emoji: '💡', label: 'Electricity' };
+  if (aid.includes('natural_gas_distribution')) return { emoji: '🔥', label: 'Natural gas' };
+  if (aid.includes('water_treatment-type_water_sewage')) return { emoji: '💧', label: 'Water' };
+  if (aid.includes('hospitals')) return { emoji: '🏥', label: 'Hospital' };
+  if (aid.includes('health_and_personal_care_stores'))
+    return { emoji: '💊', label: 'Pharmacy' };
+  if (aid.includes('personal_care_services')) return { emoji: '💇', label: 'Personal care' };
+  if (aid.includes('general_merchandise_stores')) return { emoji: '🛍️', label: 'Merchandise' };
 
   // Fallback by DB category (for rows synced before Phase 2 polish, or
   // anything the activity-id matcher missed).
@@ -217,10 +234,18 @@ export const ProfileScreen: React.FC = () => {
                 </Pressable>
 
                 {lastSync ? (
-                  <Text className="text-carbon-500 text-xs">
-                    Last sync: {lastSync.upserted} updated of {lastSync.fetched} fetched ·{' '}
-                    {lastSync.total_carbon_kg.toFixed(2)} kg CO₂
-                  </Text>
+                  <>
+                    <Text className="text-carbon-500 text-xs">
+                      Last sync: {lastSync.upserted} updated of {lastSync.fetched} fetched ·{' '}
+                      {lastSync.total_carbon_kg.toFixed(2)} kg CO₂
+                    </Text>
+                    {(lastSync.liveFactorCount + lastSync.fallbackFactorCount) > 0 ? (
+                      <Text className="text-carbon-400 text-[10px] mt-0.5">
+                        {lastSync.liveFactorCount} live Climatiq ·{' '}
+                        {lastSync.fallbackFactorCount} fallback
+                      </Text>
+                    ) : null}
+                  </>
                 ) : null}
                 {syncError ? (
                   <Text className="text-red-600 text-xs mt-2">{syncError}</Text>
@@ -269,8 +294,9 @@ export const ProfileScreen: React.FC = () => {
                 Recent spending
               </Text>
               <Text className="text-carbon-500 text-xs mb-3">
-                Carbon estimated from category averages (Phase 3 will replace
-                these with live Climatiq lookups).
+                Carbon estimated per dollar via Climatiq's CEDA US dataset
+                (with category-average fallback when an activity isn't
+                mapped yet).
               </Text>
 
               {transactions.length === 0 ? (
