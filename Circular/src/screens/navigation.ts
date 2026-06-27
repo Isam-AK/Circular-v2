@@ -28,4 +28,6 @@ export type AppStackParamList = {
   ShareItem: { initialPhotoUri?: string } | undefined;
   /** Camera-first avatar update. On capture uploads + dismisses. */
   AvatarCapture: undefined;
+  /** Recycling log flow: preset/photo/barcode entry → CO₂ + Pfand savings. */
+  Recycle: undefined;
 };

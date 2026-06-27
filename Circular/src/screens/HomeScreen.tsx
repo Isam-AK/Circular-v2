@@ -213,6 +213,11 @@ export const HomeScreen: React.FC = () => {
           onPress={() => navigation.navigate('ScanItem')}
         />
         <ActionButton
+          label="Recycle"
+          icon="♻️"
+          onPress={() => navigation.navigate('Recycle')}
+        />
+        <ActionButton
           label="Share"
           icon="🤝"
           // Hop into the Share tab inside the parent Tabs navigator.
@@ -396,18 +401,19 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  // Quick actions
+  // Quick actions — 2×2 grid so a 4th button doesn't overflow one row
   actionsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
   },
   actionButton: {
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: 14,
+    width: '47%',
     backgroundColor: 'rgba(255,255,255,0.8)',
     borderRadius: 16,
-    minWidth: 90,
   },
   actionIcon: {
     fontSize: 28,

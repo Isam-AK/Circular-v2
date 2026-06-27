@@ -18,6 +18,9 @@ export type ItemCondition = 'new' | 'like_new' | 'good' | 'fair' | 'needs_repair
 
 export type ItemStatus = 'available' | 'reserved' | 'shared' | 'withdrawn';
 
+/** How a recycling log entry was created. */
+export type RecyclingSource = 'preset' | 'photo' | 'barcode';
+
 export type TransactionCategory =
   | 'food'
   | 'transport'
@@ -99,6 +102,33 @@ export interface SharedItem {
   updated_at: string;
 }
 
+export interface RecyclingLog {
+  id: string;
+  user_id: string;
+  /** Catalog key from src/lib/recycling.ts, e.g. 'pet_bottle_500'. */
+  material_key: string;
+  /** Human-readable label snapshot at log time. */
+  label: string;
+  quantity: number;
+  /** kg CO₂e avoided by recycling vs. landfill. Snapshotted on insert;
+   *  summed into users.carbon_saved by recalculate_carbon_saved. */
+  co2_saved_kg: number;
+  /** Deposit value refunded (German Pfand), in EUR. Snapshotted on insert. */
+  money_saved_eur: number;
+  source: RecyclingSource;
+  photo_url: string | null;
+  barcode: string | null;
+  created_at: string;
+}
+
+/** Aggregate row returned by the recycling_totals RPC. */
+export interface RecyclingTotals {
+  co2_saved_kg: number;
+  money_saved_eur: number;
+  item_count: number;
+  log_count: number;
+}
+
 // PostGIS geography types as returned by Supabase
 export interface GeoPoint {
   type: 'Point';
@@ -134,6 +164,11 @@ export interface Database {
         Insert: Omit<SharedItem, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<SharedItem, 'id' | 'owner_id' | 'created_at'>>;
       };
+      recycling_logs: {
+        Row: RecyclingLog;
+        Insert: Omit<RecyclingLog, 'id' | 'created_at'>;
+        Update: Partial<Omit<RecyclingLog, 'id' | 'user_id' | 'created_at'>>;
+      };
     };
     Functions: {
       nearby_items: {
@@ -143,6 +178,14 @@ export interface Database {
       recalculate_carbon_score: {
         Args: { target_user_id: string };
         Returns: number;
+      };
+      recalculate_carbon_saved: {
+        Args: { target_user_id: string };
+        Returns: number;
+      };
+      recycling_totals: {
+        Args: { target_user_id: string };
+        Returns: RecyclingTotals[];
       };
     };
   };

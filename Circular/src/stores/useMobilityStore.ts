@@ -41,6 +41,8 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
     const savedKg = savingsForTrip(mode, distanceKm);
     const startedAt = new Date().toISOString();
 
+    // Cast the values arg to bypass supabase-js's `never` Insert inference
+    // (same workaround as useItemStore / useRecyclingStore).
     const { data, error } = await supabase
       .from('mobility_logs')
       .insert({
@@ -51,7 +53,7 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
         carbon_kg: carbonKg,
         carbon_saved_kg: savedKg,
         started_at: startedAt,
-      })
+      } as any)
       .select()
       .single();
 
@@ -63,9 +65,11 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
     // Re-sum both totals from scratch on the server. Both RPCs SECURITY DEFINER,
     // both idempotent — running them on every insert means users.carbon_score /
     // carbon_saved can never drift from the underlying tables.
+    // rpc chain doesn't propagate cleanly in supabase-js v2; cast on the rpc
+    // call (same workaround as useRecyclingStore / useItemStore).
     const [{ error: scoreErr }, { error: savedErr }] = await Promise.all([
-      supabase.rpc('recalculate_carbon_score', { target_user_id: authData.user.id }),
-      supabase.rpc('recalculate_carbon_saved', { target_user_id: authData.user.id }),
+      (supabase.rpc as any)('recalculate_carbon_score', { target_user_id: authData.user.id }),
+      (supabase.rpc as any)('recalculate_carbon_saved', { target_user_id: authData.user.id }),
     ]);
     if (scoreErr) {
       console.warn('[useMobilityStore] recalculate_carbon_score failed:', scoreErr.message);

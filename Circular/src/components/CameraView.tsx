@@ -1,11 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Camera,
   useCameraDevice,
   useCameraPermission,
 } from 'react-native-vision-camera';
+import { launchImageLibrary } from 'react-native-image-picker';
+
+// Bundled fallback photo used by the dev-only "Use sample photo" button on
+// devices/simulators without a camera. Lives in src/assets.
+const SAMPLE_ITEM_IMAGE = require('../assets/sample-item.jpg');
 
 interface CameraViewProps {
   /** Fires with a `file://` URI after a successful capture. */
@@ -65,6 +70,36 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   };
 
+  // Fallback for devices/simulators with no camera: pick an existing photo.
+  const handlePickFromLibrary = async () => {
+    setError(null);
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        selectionLimit: 1,
+        quality: 0.9,
+      });
+      if (result.didCancel) return;
+      if (result.errorCode) {
+        setError(result.errorMessage ?? 'Could not open photo library');
+        return;
+      }
+      const uri = result.assets?.[0]?.uri;
+      if (uri) onCapture(uri);
+    } catch (e) {
+      setError((e as Error).message || 'Could not pick a photo');
+    }
+  };
+
+  // Dev-only: feed a bundled sample photo through the same onCapture path so
+  // the rest of the Scan→Share pipeline can be tested without a camera.
+  const handleUseSample = () => {
+    setError(null);
+    const resolved = Image.resolveAssetSource(SAMPLE_ITEM_IMAGE);
+    if (resolved?.uri) onCapture(resolved.uri);
+    else setError('Sample image unavailable');
+  };
+
   // ── Permission denied ──
   if (!hasPermission) {
     return (
@@ -85,12 +120,27 @@ export const CameraView: React.FC<CameraViewProps> = ({
     );
   }
 
-  // ── Device not ready ──
+  // ── No camera device (e.g. iOS Simulator) ──
+  // Fall back to picking an existing photo so the Scan→Share flow is still
+  // usable; in dev we also offer a bundled sample image.
   if (!device) {
     return (
       <SafeAreaView style={styles.gate}>
-        <ActivityIndicator color="#fff" />
-        <Text style={styles.gateBody}>No back camera available on this device.</Text>
+        <Text style={styles.gateTitle}>No camera available</Text>
+        <Text style={styles.gateBody}>
+          This device has no back camera{__DEV__ ? ' (the simulator never does)' : ''}.
+          {' '}Pick a photo from your library instead
+          {__DEV__ ? ', or use a sample image for testing.' : '.'}
+        </Text>
+        <Pressable style={styles.primaryButton} onPress={handlePickFromLibrary}>
+          <Text style={styles.primaryButtonText}>Pick from library</Text>
+        </Pressable>
+        {__DEV__ ? (
+          <Pressable style={styles.secondaryButton} onPress={handleUseSample}>
+            <Text style={styles.secondaryButtonText}>Use sample photo (dev)</Text>
+          </Pressable>
+        ) : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {onClose ? (
           <Pressable style={styles.ghostButton} onPress={onClose}>
             <Text style={styles.ghostButtonText}>Close</Text>
@@ -236,6 +286,19 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    borderColor: '#059669',
+    borderWidth: 1,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  secondaryButtonText: {
+    color: '#34d399',
     fontSize: 15,
     fontWeight: '600',
   },

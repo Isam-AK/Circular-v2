@@ -35,6 +35,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Circular uses the camera to scan objects for recycling and reuse suggestions.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Circular lets you pick a photo of an item you'd like to share.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Circular uses your location to find nearby sharing opportunities and log mobility.</string>
 	<key>RCTNewArchEnabled</key>

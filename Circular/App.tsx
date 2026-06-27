@@ -18,6 +18,7 @@ import { ShareScreen } from './src/screens/ShareScreen';
 import { ScanItemScreen } from './src/screens/ScanItemScreen';
 import { ShareItemScreen } from './src/screens/ShareItemScreen';
 import { AvatarCaptureScreen } from './src/screens/AvatarCaptureScreen';
+import { RecycleScreen } from './src/screens/RecycleScreen';
 import type {
   AppStackParamList,
   AuthStackParamList,
@@ -122,6 +123,14 @@ const AppNavigator: React.FC = () => (
     >
       {({ navigation }) => (
         <AvatarCaptureScreen onClose={() => navigation.goBack()} />
+      )}
+    </AppStack.Screen>
+    <AppStack.Screen
+      name="Recycle"
+      options={{ presentation: 'modal', gestureEnabled: true }}
+    >
+      {({ navigation }) => (
+        <RecycleScreen onClose={() => navigation.goBack()} />
       )}
     </AppStack.Screen>
   </AppStack.Navigator>
